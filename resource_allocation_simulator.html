@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resource Allocation Simulator</title>
+<style>
+  :root {
+    --dark: #0F2A33; --teal: #0E7C86; --amber: #F5A524; --bg: #EEF3F4;
+    --ink: #1B2A2F; --muted: #3D5A66; --card: #FFFFFF; --line: #C5D3D6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: "Segoe UI", Calibri, Arial, sans-serif; }
+  header { background: var(--dark); color: #fff; padding: 12px 20px; display: flex;
+           align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 20px; font-family: Cambria, Georgia, serif; }
+  header span { color: var(--amber); font-size: 13px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 14px 16px 30px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 12px 14px; margin-bottom: 12px; }
+  .card h2 { margin: 0 0 10px; font-size: 14px; color: var(--teal); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--muted); }
+  textarea, input[type=text], select {
+    width: 100%; font-family: "Courier New", monospace; font-size: 14px; padding: 6px 8px;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
+  textarea { resize: vertical; height: 110px; }
+  select { font-family: inherit; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .controls label.radio { display: inline-flex; align-items: center; gap: 6px; margin: 0;
+                          font-size: 14px; font-weight: 500; color: var(--ink); cursor: pointer; }
+  button { font: inherit; font-weight: 600; padding: 8px 16px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--line); background: #fff; color: var(--ink); }
+  button.run { background: var(--teal); border-color: var(--teal); color: #fff; }
+  button.run:hover { background: #0B636B; }
+  .tabs { display: flex; gap: 4px; margin-bottom: -1px; }
+  .tab { padding: 8px 14px; border: 1px solid var(--line); border-bottom: none; background: #DCE6E8;
+         border-radius: 8px 8px 0 0; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .tab.active { background: var(--card); color: var(--teal); }
+  .panel { border: 1px solid var(--line); background: var(--card); border-radius: 0 10px 10px 10px;
+           padding: 12px; min-height: 220px; }
+  #log { background: var(--dark); color: #E6F2F3; font-family: "Courier New", monospace; font-size: 13px;
+         padding: 12px; border-radius: 8px; white-space: pre-wrap; margin: 0; overflow-x: auto; }
+  .t { color: var(--amber); font-weight: 700; }
+  .ok { color: #7FE3C0; } .bad { color: #FF8A75; } .wait { color: #F5C66B; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { background: var(--teal); color: #fff; text-align: left; padding: 8px 10px; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td:first-child { font-weight: 600; }
+  #verdict { margin: 10px 2px 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 14px; padding: 18px 4px; }
+  .error { background: #FDECEA; border: 1px solid #F5B5AD; color: #8A2B1F; padding: 8px 12px;
+           border-radius: 6px; margin-bottom: 12px; font-size: 14px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Resource Allocation Simulator</h1>
+  <span>Classical Banker's vs DBDAA (Dynamic Mode)</span>
+</header>
+<main>
+  <div id="error" class="error" role="alert"></div>
+
+  <section class="card">
+    <h2>1. System input</h2>
+    <div class="grid">
+      <div>
+        <label for="sample">Load sample</label>
+        <select id="sample"></select>
+        <div style="height:10px"></div>
+        <label for="total">Total resources</label>
+        <input id="total" type="text">
+        <div class="hint">One number per resource type, e.g. 10 5 7</div>
+      </div>
+      <div>
+        <label for="maxm">Max matrix (row per process)</label>
+        <textarea id="maxm"></textarea>
+      </div>
+      <div>
+        <label for="alloc">Allocation matrix</label>
+        <textarea id="alloc"></textarea>
+      </div>
+      <div>
+        <label for="events">Events (one per line)</label>
+        <textarea id="events"></textarea>
+        <div class="hint"><b>pid v1 v2 ...</b> = request &nbsp;|&nbsp; <b>NEW m1 m2 ...</b> = new process at runtime</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2. Select algorithm and run</h2>
+    <div class="controls">
+      <label class="radio"><input type="radio" name="algo" value="classic"> Classical Banker's</label>
+      <label class="radio"><input type="radio" name="algo" value="dbdaa"> DBDAA (Dynamic)</label>
+      <label class="radio"><input type="radio" name="algo" value="both" checked> Compare both</label>
+      <button class="run" id="run">Run Simulation</button>
+      <button id="clear">Clear Output</button>
+    </div>
+  </section>
+
+  <div class="tabs">
+    <div class="tab active" id="tab-log" data-tab="log">3. Execution log</div>
+    <div class="tab" id="tab-cmp" data-tab="cmp">4. Performance comparison</div>
+  </div>
+  <div class="panel">
+    <div id="view-log"><div class="empty" id="log-empty">Press "Run Simulation" to see the step-by-step log.</div><pre id="log" hidden></pre></div>
+    <div id="view-cmp" hidden>
+      <div class="empty" id="cmp-empty">Press "Run Simulation" to see the comparison table.</div>
+      <table id="cmp" hidden>
+        <thead><tr><th>Metric</th><th>Classical Banker's</th><th>DBDAA (Dynamic)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="verdict"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ===================== Samples ===================== */
+const SAMPLES = {
+  "Classic (5P, 3R)": {
+    total: "10 5 7",
+    maxm: "7 5 3\n3 2 2\n9 0 2\n2 2 2\n4 3 3",
+    alloc: "0 1 0\n2 0 0\n3 0 2\n2 1 1\n0 0 2",
+    events: "1 1 0 2\n4 3 3 0\n0 0 2 0" },
+  "Deadlock-prone (2P, 2R)": {
+    total: "1 1", maxm: "1 1\n1 1", alloc: "0 0\n0 0",
+    events: "0 1 0\n1 0 1\n0 0 1\n1 1 0" },
+  "Classic + new process at runtime": {
+    total: "10 5 7",
+    maxm: "7 5 3\n3 2 2\n9 0 2\n2 2 2\n4 3 3",
+    alloc: "0 1 0\n2 0 0\n3 0 2\n2 1 1\n0 0 2",
+    events: "1 1 0 2\nNEW 2 2 2\n4 3 3 0\n0 0 2 0" }
+};
+
+/* ===================== Helpers ===================== */
+function parseVector(text, expected, name) {
+  const parts = text.replace(/,/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) throw new Error(name + " is empty.");
+  const vec = parts.map(p => {
+    if (!/^-?\d+$/.test(p)) throw new Error(name + " must contain only whole numbers.");
+    return parseInt(p, 10);
+  });
+  if (vec.some(v => v < 0)) throw new Error(name + " cannot contain negative numbers.");
+  if (expected != null && vec.length !== expected)
+    throw new Error(name + " needs " + expected + " values, got " + vec.length + ".");
+  return vec;
+}
+const N = s => s.maximum.length;
+const M = s => s.total.length;
+const needOf = s => s.maximum.map((r, i) => r.map((v, j) => v - s.allocation[i][j]));
+const availOf = s => s.total.map((t, j) => t - s.allocation.reduce((a, r) => a + r[j], 0));
+const copyOf = s => ({ total: s.total.slice(), maximum: s.maximum.map(r => r.slice()),
+                       allocation: s.allocation.map(r => r.slice()) });
+const seqText = seq => seq.map(p => "P" + p).join(", ");
+const vecText = v => "[" + v.join(", ") + "]";
+const maxNeed = row => (row.length ? Math.max(...row) : 0);
+
+function validateState(s) {
+  if (N(s) === 0 || M(s) === 0) throw new Error("At least 1 process and 1 resource type are required.");
+  if (N(s) > 20 || M(s) > 10) throw new Error("Limit exceeded: max 20 processes and 10 resource types.");
+  if (s.allocation.length !== N(s)) throw new Error("Max and Allocation need the same number of rows.");
+  for (let i = 0; i < N(s); i++)
+    for (let j = 0; j < M(s); j++) {
+      if (s.allocation[i][j] > s.maximum[i][j]) throw new Error("Allocation exceeds Max for P" + i + ", resource R" + j + ".");
+      if (s.maximum[i][j] > s.total[j]) throw new Error("Max of P" + i + " for R" + j + " exceeds total instances.");
+    }
+  if (availOf(s).some(a => a < 0)) throw new Error("Allocated resources exceed the total available in the system.");
+}
+function validateRequest(s, req) {
+  if (!(req.pid >= 0 && req.pid < N(s))) throw new Error("Process id P" + req.pid + " does not exist (valid: P0-P" + (N(s) - 1) + ").");
+}
+function parseEvents(text, m) {
+  const events = [];
+  text.split("\n").forEach((raw, idx) => {
+    const line = raw.trim();
+    if (!line) return;
+    if (/^new\b/i.test(line)) {
+      events.push({ type: "new", maximum: parseVector(line.slice(3), m, "Events line " + (idx + 1) + " (NEW)") });
+    } else {
+      const v = parseVector(line, m + 1, "Events line " + (idx + 1));
+      events.push({ type: "req", pid: v[0], amount: v.slice(1) });
+    }
+  });
+  return events;
+}
+function newResult(name, dyn) {
+  return { algorithm: name, log: [], granted: 0, denied: 0, deferred: 0, retriedGranted: 0,
+           completed: [], stillDeferred: [], operations: 0, timeUs: 0, avgUtil: 0,
+           finalAvailable: [], dynamic: dyn };
+}
+const utilOf = s => 100 * s.allocation.reduce((a, r) => a + r.reduce((x, y) => x + y, 0), 0) /
+                    Math.max(1, s.total.reduce((x, y) => x + y, 0));
+
+/* ===================== Classical Banker's ===================== */
+function isSafeClassic(s, counter) {
+  const need = needOf(s); let work = availOf(s);
+  const finish = new Array(N(s)).fill(false); const seq = [];
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (let i = 0; i < N(s); i++) {
+      if (finish[i]) continue;
+      counter.n += M(s);
+      if (need[i].every((v, j) => v <= work[j])) {
+        work = work.map((w, j) => w + s.allocation[i][j]);
+        finish[i] = true; seq.push(i); progress = true;
+      }
+    }
+  }
+  return [finish.every(Boolean), seq];
+}
+function releaseClassic(s, res) {
+  for (let i = 0; i < N(s); i++) {
+    if (!res.completed.includes(i) && s.maximum[i].some(v => v) &&
+        s.allocation[i].every((v, j) => v === s.maximum[i][j])) {
+      s.allocation[i] = new Array(M(s)).fill(0);
+      res.completed.push(i);
+      res.log.push("  P" + i + " finished and released its resources.");
+    }
+  }
+}
+function runBankers(initial, events) {
+  let s = copyOf(initial); const res = newResult("Classical Banker's Algorithm", false);
+  const counter = { n: 0 }; const util = []; const t0 = performance.now();
+  let [ok, seq] = isSafeClassic(s, counter);
+  res.log.push("Initial state is " + (ok ? "SAFE" : "UNSAFE") + (ok ? ": <" + seqText(seq) + ">" : ""));
+  events.forEach((ev, k) => {
+    const step = k + 1;
+    if (ev.type === "new") {
+      res.denied++;
+      res.log.push("Step " + step + ": NEW process Max " + vecText(ev.maximum) +
+                   " -> IGNORED (classical Banker's needs a fixed process set)");
+    } else {
+      validateRequest(s, ev);
+      const need = needOf(s)[ev.pid], avail = availOf(s);
+      const tag = "Step " + step + ": P" + ev.pid + " requests " + vecText(ev.amount);
+      counter.n += 2 * M(s);
+      if (ev.amount.some((a, j) => a > need[j])) {
+        res.denied++; res.log.push(tag + " -> DENIED (exceeds declared maximum claim)");
+      } else if (ev.amount.some((a, j) => a > avail[j])) {
+        res.denied++; res.log.push(tag + " -> DENIED (not enough resources, must wait)");
+      } else {
+        const trial = copyOf(s);
+        ev.amount.forEach((a, j) => { trial.allocation[ev.pid][j] += a; });
+        const [safe, sq] = isSafeClassic(trial, counter);
+        if (safe) {
+          s = trial; res.granted++;
+          res.log.push(tag + " -> GRANTED (safe: <" + seqText(sq) + ">)");
+          releaseClassic(s, res);
+        } else {
+          res.denied++; res.log.push(tag + " -> DENIED (would lead to UNSAFE state)");
+        }
+      }
+    }
+    util.push(utilOf(s));
+  });
+  res.timeUs = (performance.now() - t0) * 1000;
+  res.operations = counter.n;
+  res.avgUtil = util.length ? util.reduce((a, b) => a + b, 0) / util.length : 0;
+  res.finalAvailable = availOf(s);
+  return res;
+}
+
+/* ===================== DBDAA ===================== */
+function sortedQueue(s, done) {
+  const need = needOf(s); const ids = [];
+  for (let i = 0; i < N(s); i++) if (!done.has(i)) ids.push(i);
+  return ids.sort((a, b) => (maxNeed(need[a]) - maxNeed(need[b])) || (a - b));
+}
+function isSafeDbdaa(s, counter, done) {
+  const m = M(s); const need = needOf(s); let work = availOf(s);
+  const order = sortedQueue(s, done); const finish = {}; order.forEach(i => { finish[i] = false; });
+  const seq = [];
+  let minA = Math.min(...work); counter.n += m - 1;
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (const i of order) {
+      if (finish[i]) continue;
+      counter.n += 1;                                   // Max_Need[i] <= Min_A ?
+      let fits;
+      if (maxNeed(need[i]) <= minA) fits = true;        // fast path: one comparison
+      else { counter.n += m; fits = need[i].every((v, j) => v <= work[j]); }
+      if (fits) {
+        work = work.map((w, j) => w + s.allocation[i][j]);
+        finish[i] = true; seq.push(i); progress = true;
+        minA = Math.min(...work); counter.n += m - 1;
+      }
+    }
+  }
+  return [order.every(i => finish[i]), seq];
+}
+function evaluate(s, req, counter, done) {
+  const m = M(s); const need = needOf(s)[req.pid], avail = availOf(s);
+  counter.n += 2 * m;
+  if (done.has(req.pid)) return ["REJECT", null, [], "process already finished"];
+  if (req.amount.some((a, j) => a > need[j])) return ["REJECT", null, [], "exceeds declared maximum claim"];
+  if (req.amount.some((a, j) => a > avail[j])) return ["DEFER", null, [], "not enough free resources"];
+  const trial = copyOf(s);                              // pretend to allocate
+  req.amount.forEach((a, j) => { trial.allocation[req.pid][j] += a; });
+  const [safe, seq] = isSafeDbdaa(trial, counter, done);
+  if (safe) return ["GRANT", trial, seq, "safe"];
+  return ["DEFER", null, seq, "would lead to UNSAFE state"];
+}
+function releaseFinished(s, res, done) {
+  for (let i = 0; i < N(s); i++) {
+    if (!done.has(i) && s.maximum[i].some(v => v) &&
+        s.allocation[i].every((v, j) => v === s.maximum[i][j])) {
+      s.allocation[i] = new Array(M(s)).fill(0);
+      done.add(i); res.completed.push(i);
+      res.log.push("  P" + i + " finished and released its resources.");
+    }
+  }
+}
+function admit(s, ev, counter, done, res, tag) {
+  const m = M(s), pid = N(s);
+  counter.n += m;
+  if (ev.maximum.some((v, j) => v > s.total[j])) {      // early rejection
+    res.denied++;
+    res.log.push(tag + ": NEW process Max " + vecText(ev.maximum) + " -> EARLY REJECT (Max exceeds Total)");
+    return s;
+  }
+  const trial = copyOf(s);
+  trial.maximum.push(ev.maximum.slice()); trial.allocation.push(new Array(m).fill(0));
+  const [safe, seq] = isSafeDbdaa(trial, counter, done);
+  if (!safe) {
+    res.denied++;
+    res.log.push(tag + ": NEW process Max " + vecText(ev.maximum) + " -> REJECTED (would make state UNSAFE)");
+    return s;
+  }
+  res.log.push(tag + ": NEW process P" + pid + " Max " + vecText(ev.maximum) +
+               " joins the ready queue -> SAFE: <" + seqText(seq) + ">");
+  return trial;
+}
+function timerCycle(s, deferred, counter, done, res, maxCycles) {
+  let cycles = 0, changed = true;
+  while (changed && deferred.length && cycles < maxCycles) {
+    changed = false; cycles++;
+    const need = needOf(s);
+    const order = deferred.slice().sort((a, b) => (maxNeed(need[a.pid]) - maxNeed(need[b.pid])) || (a.pid - b.pid));
+    for (const item of order) {
+      const [verdict, trial, seq, why] = evaluate(s, { pid: item.pid, amount: item.amount }, counter, done);
+      const tag = "  [timer " + cycles + "] retry P" + item.pid + " " + vecText(item.amount);
+      if (verdict === "GRANT") {
+        s = trial; deferred.splice(deferred.indexOf(item), 1);
+        res.granted++; res.retriedGranted++;
+        res.log.push(tag + " -> GRANTED (safe: <" + seqText(seq) + ">)");
+        releaseFinished(s, res, done); changed = true; break;
+      }
+      if (verdict === "REJECT") {
+        deferred.splice(deferred.indexOf(item), 1); res.denied++;
+        res.log.push(tag + " -> REJECTED (" + why + ")"); changed = true; break;
+      }
+    }
+  }
+  return s;
+}
+function runDbdaa(initial, events) {
+  let s = copyOf(initial); const res = newResult("DBDAA (Dynamic Banker's)", true);
+  const counter = { n: 0 }, util = [], deferred = [], done = new Set(); const t0 = performance.now();
+  const [ok, seq] = isSafeDbdaa(s, counter, done);
+  const need0 = needOf(s);
+  res.log.push("Queue sorted by Max_Need: [" + sortedQueue(s, done).map(i => "P" + i + "(" + maxNeed(need0[i]) + ")").join(", ") + "]");
+  res.log.push("Initial state is " + (ok ? "SAFE" : "UNSAFE") + (ok ? ": <" + seqText(seq) + ">" : ""));
+  events.forEach((ev, k) => {
+    const step = k + 1;
+    if (ev.type === "new") {
+      s = admit(s, ev, counter, done, res, "Step " + step);
+    } else {
+      validateRequest(s, ev);
+      const tag = "Step " + step + ": P" + ev.pid + " requests " + vecText(ev.amount);
+      if (deferred.some(d => d.pid === ev.pid)) {
+        res.denied++; res.log.push(tag + " -> IGNORED (P" + ev.pid + " is already on the Primary Unsafe list)");
+      } else {
+        const [verdict, trial, sq, why] = evaluate(s, ev, counter, done);
+        if (verdict === "GRANT") {
+          s = trial; res.granted++;
+          res.log.push(tag + " -> GRANTED (safe: <" + seqText(sq) + ">)");
+          releaseFinished(s, res, done);
+        } else if (verdict === "REJECT") {
+          res.denied++; res.log.push(tag + " -> REJECTED (" + why + ")");
+        } else {
+          deferred.push({ pid: ev.pid, amount: ev.amount.slice(), step });
+          res.deferred++;
+          res.log.push(tag + " -> DEFERRED to Primary Unsafe list (" + why + ")");
+        }
+      }
+    }
+    s = timerCycle(s, deferred, counter, done, res, 10);
+    util.push(utilOf(s));
+  });
+  res.stillDeferred = deferred.map(d => d.pid);
+  if (deferred.length) res.log.push("Still on Primary Unsafe list: " + deferred.map(d => "P" + d.pid + " " + vecText(d.amount)).join(", "));
+  res.timeUs = (performance.now() - t0) * 1000;
+  res.operations = counter.n;
+  res.avgUtil = util.length ? util.reduce((a, b) => a + b, 0) / util.length : 0;
+  res.finalAvailable = availOf(s);
+  return res;
+}
+
+/* ===================== UI ===================== */
+const $ = id => document.getElementById(id);
+
+function loadSample(name) {
+  const s = SAMPLES[name];
+  $("total").value = s.total; $("maxm").value = s.maxm; $("alloc").value = s.alloc; $("events").value = s.events;
+  clearOutput();
+}
+function showError(msg) { const e = $("error"); e.textContent = msg; e.style.display = msg ? "block" : "none"; }
+function showTab(name) {
+  $("view-log").hidden = name !== "log"; $("view-cmp").hidden = name !== "cmp";
+  $("tab-log").classList.toggle("active", name === "log"); $("tab-cmp").classList.toggle("active", name === "cmp");
+}
+function clearOutput() {
+  showError("");
+  $("log").hidden = true; $("log").innerHTML = ""; $("log-empty").hidden = false;
+  $("cmp").hidden = true; $("cmp").querySelector("tbody").innerHTML = ""; $("cmp-empty").hidden = false;
+  $("verdict").textContent = "";
+}
+function esc(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function lineClass(line) {
+  if (/GRANTED|joins/.test(line)) return "ok";
+  if (/DEFERRED|still/.test(line)) return "wait";
+  if (/DENIED|REJECT|IGNORED/.test(line)) return "bad";
+  return "";
+}
+function readInput() {
+  const total = parseVector($("total").value, null, "Total resources"); const m = total.length;
+  const grid = (id, nm) => $(id).value.split("\n").filter(l => l.trim())
+    .map((l, i) => parseVector(l, m, nm + " row " + i));
+  const state = { total, maximum: grid("maxm", "Max"), allocation: grid("alloc", "Allocation") };
+  validateState(state);
+  return [state, parseEvents($("events").value, m)];
+}
+function run() {
+  let state, events, c = null, d = null;
+  const choice = document.querySelector("input[name=algo]:checked").value;
+  try {
+    [state, events] = readInput();
+    if (choice === "classic" || choice === "both") c = runBankers(state, events);
+    if (choice === "dbdaa" || choice === "both") d = runDbdaa(state, events);
+  } catch (e) { showError("Invalid input: " + e.message); return; }
+  clearOutput();
+  let html = "";
+  [c, d].filter(Boolean).forEach(r => {
+    html += '<span class="t">=== ' + esc(r.algorithm) + ' ===</span>\n';
+    r.log.forEach(l => { html += '<span class="' + lineClass(l) + '">' + esc(l) + "</span>\n"; });
+    html += "\n";
+  });
+  $("log").innerHTML = html; $("log").hidden = false; $("log-empty").hidden = true;
+
+  const val = (r, f) => {
+    if (!r) return "-";
+    const v = r[f];
+    if (f === "completed" || f === "stillDeferred") return v.length ? v.map(p => "P" + p).join(", ") : "none";
+    if (f === "dynamic") return v ? "Yes (runtime arrival)" : "No (fixed process set)";
+    if (f === "finalAvailable") return vecText(v);
+    if (f === "timeUs" || f === "avgUtil") return v.toFixed(1);
+    return String(v);
+  };
+  const rows = [["Requests granted", "granted"], ["Denied / rejected", "denied"],
+    ["Deferred (Primary Unsafe list)", "deferred"], ["Deferred requests granted later", "retriedGranted"],
+    ["Still deferred at end", "stillDeferred"], ["Processes completed", "completed"],
+    ["Operations (comparisons)", "operations"], ["Time (us)", "timeUs"],
+    ["Average utilization (%)", "avgUtil"], ["Final available", "finalAvailable"],
+    ["Dynamic process arrival", "dynamic"]];
+  $("cmp").querySelector("tbody").innerHTML = rows.map(([label, f]) =>
+    "<tr><td>" + label + "</td><td>" + val(c, f) + "</td><td>" + val(d, f) + "</td></tr>").join("");
+  $("cmp").hidden = false; $("cmp-empty").hidden = true;
+  if (c && d) $("verdict").textContent = "Operations: classical " + c.operations + " vs DBDAA " + d.operations +
+    ". DBDAA accepts runtime arrivals and retries deferred requests.";
+  showTab(choice === "both" ? "cmp" : "log");
+}
+
+/* wire up */
+Object.keys(SAMPLES).forEach(n => { const o = document.createElement("option"); o.textContent = n; $("sample").appendChild(o); });
+$("sample").addEventListener("change", e => loadSample(e.target.value));
+$("run").addEventListener("click", run);
+$("clear").addEventListener("click", clearOutput);
+$("tab-log").addEventListener("click", () => showTab("log"));
+$("tab-cmp").addEventListener("click", () => showTab("cmp"));
+loadSample("Classic (5P, 3R)");
+</script>
+</body>
+</html>
